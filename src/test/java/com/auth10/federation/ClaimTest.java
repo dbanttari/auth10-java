@@ -31,8 +31,6 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 
-import com.auth10.federation.Claim;
-
 import junit.framework.TestCase;
 
 public class ClaimTest extends TestCase {

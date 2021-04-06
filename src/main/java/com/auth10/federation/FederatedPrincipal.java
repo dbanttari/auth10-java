@@ -36,14 +36,15 @@ public class FederatedPrincipal implements Principal {
 	private static final String EmailClaimType = "http://schemas.xmlsoap.org/claims/EmailAddress";
 	
 	protected List<Claim> claims = null;
+	private String name;
 
-	public FederatedPrincipal(List<Claim> claims) {
+	public FederatedPrincipal(String name, List<Claim> claims) {
+		this.name = name;
 		this.claims = claims;
 	}
 
-	public String getName() {
-		String name = "";
-		
+	public FederatedPrincipal(List<Claim> claims) {
+		this.claims = claims;
 		for (Claim claim : claims) {
 			if (claim.getClaimType().equals(NameClaimType))
 				name = claim.getClaimValue();
@@ -55,7 +56,10 @@ public class FederatedPrincipal implements Principal {
 					name = claim.getClaimValue();
 			}			
 		}
-		
+
+	}
+	
+	public String getName() {
 		return name;
 	}
 

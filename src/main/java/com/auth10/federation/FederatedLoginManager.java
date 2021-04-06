@@ -27,9 +27,6 @@
 
 package com.auth10.federation;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
 
@@ -45,7 +42,7 @@ public class FederatedLoginManager {
 	
 	private HttpServletRequest request;
 	private FederatedAuthenticationListener listener;
-
+	
 	public static FederatedLoginManager fromRequest(HttpServletRequest request) {
 		return fromRequest(request, null);
 	}
@@ -65,15 +62,7 @@ public class FederatedLoginManager {
 		try {
 			SamlTokenValidator validator = new SamlTokenValidator();
 
-			this.setTrustedIssuers(validator);
-			
-			this.setAudienceUris(validator);
-
-			this.setThumbprint(validator);			
-
-			claims = validator.validate(token);
-
-			FederatedPrincipal principal = new FederatedPrincipal(claims);
+			FederatedPrincipal principal = validator.validate(token);
 			
 			if (listener != null) listener.OnAuthenticationSucceed(principal);
 			
@@ -90,36 +79,6 @@ public class FederatedLoginManager {
 		}
 	}
 		
-	protected void setTrustedIssuers(SamlTokenValidator validator) 
-			throws FederationException {
-		String[] trustedIssuers = FederatedConfiguration.getInstance().getTrustedIssuers();
-		if (trustedIssuers != null) {
-			validator.getTrustedIssuers().addAll(Arrays.asList(trustedIssuers));
-		}		
-	}
-	
-	protected void setAudienceUris(SamlTokenValidator validator) 
-			throws FederationException {
-		String[] audienceUris = FederatedConfiguration.getInstance().getAudienceUris();
-		for (String audienceUriStr : audienceUris) {
-			try {
-				validator.getAudienceUris().add(new URI(audienceUriStr));
-			} catch (URISyntaxException e) {
-				throw new FederationException("Federated Login Configuration failure: Invalid Audience URI", e);
-			}
-		}
-	}
-	
-	protected void setThumbprint(SamlTokenValidator validator)
-			throws FederationException {
-		String thumbprint = FederatedConfiguration.getInstance().getThumbprint();
-		validator.setThumbprint(thumbprint);
-	}
-
-	public static String getFederatedLoginUrl(String returnURL) {
-		return getFederatedLoginUrl(null, null, returnURL); 
-	}
-	
 	public static String getFederatedLoginUrl(String realm, String replyURL, String returnURL) {
 		Calendar c = Calendar.getInstance();
 

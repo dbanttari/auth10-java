@@ -31,25 +31,41 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.Key;
 import java.security.KeyException;
+import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.TransformerException;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpression;
+import javax.xml.xpath.XPathFactory;
+
 import org.joda.time.Duration;
 import org.joda.time.Instant;
 import org.opensaml.Configuration;
 import org.opensaml.DefaultBootstrap;
 import org.opensaml.common.SignableSAMLObject;
-
 import org.opensaml.xml.ConfigurationException;
 import org.opensaml.xml.XMLObject;
 import org.opensaml.xml.io.Unmarshaller;
@@ -76,37 +92,17 @@ import org.xml.sax.SAXException;
 @SuppressWarnings("deprecation")
 public class SamlTokenValidator {
 	public static final int MAX_CLOCK_SKEW_IN_MINUTES = 3;
-	private List<String> trustedIssuers;
-	private List<URI> audienceUris;
 	private boolean validateExpiration = true;
-	private String thumbprint;
+	private final FederatedConfiguration config;
 
-	public SamlTokenValidator() throws ConfigurationException {
-		this(new ArrayList<String>(), new ArrayList<URI>());
+	public SamlTokenValidator() throws ConfigurationException, URISyntaxException {
+		this(FederatedConfiguration.getInstance());
 	}
 
-	public SamlTokenValidator(List<String> trustedIssuers,
-			List<URI> audienceUris) throws ConfigurationException {
+	public SamlTokenValidator(FederatedConfiguration config) throws ConfigurationException {
 		super();
-		this.trustedIssuers = trustedIssuers;
-		this.audienceUris = audienceUris;
+		this.config = config;
 		DefaultBootstrap.bootstrap();
-	}
-
-	public List<String> getTrustedIssuers() {
-		return this.trustedIssuers;
-	}
-
-	public void setTrustedIssuers(List<String> trustedIssuers) {
-		this.trustedIssuers = trustedIssuers;
-	}
-
-	public List<URI> getAudienceUris() {
-		return this.audienceUris;
-	}
-
-	public void setAudienceUris(List<URI> audienceUris) {
-		this.audienceUris = audienceUris;
 	}
 
 	public boolean getValidateExpiration() {
@@ -117,13 +113,9 @@ public class SamlTokenValidator {
 		this.validateExpiration = value;
 	}
 
-	public List<Claim> validate(String envelopedToken)
-			throws ParserConfigurationException, SAXException, IOException,
-			FederationException, ConfigurationException, CertificateException,
-			KeyException, SecurityException, ValidationException,
-			UnmarshallingException, URISyntaxException,
-			NoSuchAlgorithmException {
-		
+	public FederatedPrincipal validate(String envelopedToken)
+			throws Exception {
+	
 		SignableSAMLObject samlToken;
 		
 		if (envelopedToken.contains("RequestSecurityTokenResponse")) {
@@ -140,13 +132,13 @@ public class SamlTokenValidator {
 
 		boolean trusted = false;
 
-		for (String issuer : this.trustedIssuers) {
+		for (String issuer : config.getTrustedIssuers()) {
 			trusted |= validateIssuerUsingSubjectName(samlToken, issuer);
 		}
 
-		if (!trusted && (this.thumbprint != null)) {
+		if (!trusted && (config.getThumbprint() != null)) {
 			trusted = validateIssuerUsingCertificateThumbprint(samlToken,
-					this.thumbprint);
+					config.getThumbprint());
 		}
 
 		if (!trusted) {
@@ -158,15 +150,14 @@ public class SamlTokenValidator {
 		if (samlToken instanceof org.opensaml.saml1.core.Assertion) {
 			address = getAudienceUri((org.opensaml.saml1.core.Assertion) samlToken);
 		}
-
-		if (samlToken instanceof org.opensaml.saml2.core.Assertion) {
+		else if (samlToken instanceof org.opensaml.saml2.core.Assertion) {
 			address = getAudienceUri((org.opensaml.saml2.core.Assertion) samlToken);
 		}
 
 		URI audience = new URI(address);
 
 		boolean validAudience = false;
-		for (URI audienceUri : audienceUris) {
+		for (URI audienceUri : config.getAudienceUris()) {
 			validAudience |= audience.equals(audienceUri);
 		}
 
@@ -191,8 +182,7 @@ public class SamlTokenValidator {
 				Instant notOnOrAfter = ((org.opensaml.saml1.core.Assertion) samlToken).getConditions().getNotOnOrAfter().toInstant();
 				expired = validateExpiration(notBefore, notOnOrAfter);
 			}
-
-			if (samlToken instanceof org.opensaml.saml2.core.Assertion) {
+			else if (samlToken instanceof org.opensaml.saml2.core.Assertion) {
 				Instant notBefore = ((org.opensaml.saml2.core.Assertion) samlToken).getConditions().getNotBefore().toInstant();
 				Instant notOnOrAfter = ((org.opensaml.saml2.core.Assertion) samlToken).getConditions().getNotOnOrAfter().toInstant();
 				expired = validateExpiration(notBefore, notOnOrAfter);
@@ -203,7 +193,25 @@ public class SamlTokenValidator {
 			}
 		}
 
-		return claims;
+		FederatedPrincipal ret;
+		try {
+			String name;
+			if (samlToken instanceof org.opensaml.saml1.core.Assertion) {
+				name = ((org.opensaml.saml1.core.Assertion)samlToken).getAuthenticationStatements().get(0).getSubject().getNameIdentifier().getNameIdentifier();
+			}
+			else { // if (samlToken instanceof org.opensaml.saml2.core.Assertion)
+				name = ((org.opensaml.saml2.core.Assertion)samlToken).getSubject().getNameID().getValue();
+			}
+			ret = new FederatedPrincipal(name, claims);
+		}
+		catch(IndexOutOfBoundsException x) {
+			ret = new FederatedPrincipal(claims);
+		}
+		catch(NullPointerException x) {
+			ret = new FederatedPrincipal(claims);			
+		}
+		
+		return ret;
 	}
 
 	private static SignableSAMLObject getSamlTokenFromSamlResponse(
@@ -219,19 +227,15 @@ public class SamlTokenValidator {
 	}
 
 	private static SignableSAMLObject getSamlTokenFromRstr(String rstr)
-			throws ParserConfigurationException, SAXException, IOException,
-			UnmarshallingException, FederationException {
+			throws Exception {
+		
 		Document document = getDocument(rstr);
-
-		String xpath = "//*[local-name() = 'Assertion']";
-
-		NodeList nodes = null;
-
-		try {
-			nodes = org.apache.xpath.XPathAPI.selectNodeList(document, xpath);
-		} catch (TransformerException e) {
-			e.printStackTrace();
+		NodeList nodes = extractViaXpath(document, "//*[local-name() = 'EncryptedData']");
+		if(nodes.getLength() != 0) {
+			document = decodeEncryptedResponse(document);
 		}
+
+		nodes = extractViaXpath(document, "//*[local-name() = 'Assertion']");
 
 		if (nodes.getLength() == 0) {
 			throw new FederationException("SAML token was not found");
@@ -242,6 +246,60 @@ public class SamlTokenValidator {
 		SignableSAMLObject samlToken = (SignableSAMLObject) unmarshaller.unmarshall(samlTokenElement);
 
 		return samlToken;
+	}
+
+	private static NodeList extractViaXpath(Document document, String xpathstr) {
+		NodeList nodes = null;
+
+		try {
+			XPath xpath = XPathFactory.newInstance().newXPath();
+			XPathExpression expression = xpath.compile(xpathstr);
+			nodes = (NodeList) expression.evaluate(document.getDocumentElement(), XPathConstants.NODESET);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return nodes;
+	}
+
+	public static RSAPrivateKey readPrivateKey(Path path) throws Exception {
+	    String key = new String(Files.readAllBytes(path), Charset.defaultCharset());
+
+	    String privateKeyPEM = key
+	      .replace("-----BEGIN PRIVATE KEY-----", "")
+	      .replaceAll("\r", "")
+	      .replaceAll("\n", "")
+	      .replace("-----END PRIVATE KEY-----", "");
+
+	    byte[] encoded = Base64.getDecoder().decode(privateKeyPEM);
+
+	    KeyFactory keyFactory = KeyFactory.getInstance("rsa");
+	    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encoded);
+	    return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
+	}
+	
+	private static Document decodeEncryptedResponse(Document doc) throws Exception {
+		 NodeList ciphers = doc.getElementsByTagNameNS("http://www.w3.org/2001/04/xmlenc#", "CipherValue");
+		 String aesPasswordEncrypted = ciphers.item(0).getTextContent().trim();
+		 String samlTokenEncrypted = ciphers.item(1).getTextContent().trim();
+
+		 // Decrypt the password for the SAML token.
+		 RSAPrivateKey privateKey = readPrivateKey(Paths.get("src","test","resources","privatekey.pem"));
+		 Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPPadding");
+		 cipher.init(Cipher.DECRYPT_MODE, privateKey);
+		 byte[] decoded = Base64.getDecoder().decode(aesPasswordEncrypted);
+		 byte[] aesPassword = cipher.doFinal(decoded);
+		 
+		 // Decrypt the SAML token.
+		 Key aesKey = new SecretKeySpec(aesPassword, "AES");
+		 cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+		 decoded = Base64.getDecoder().decode(samlTokenEncrypted);
+		 IvParameterSpec ivParameterSpec=new IvParameterSpec(Arrays.copyOfRange(decoded, 0, 16));
+		 cipher.init(Cipher.DECRYPT_MODE, aesKey, ivParameterSpec);
+		 byte[] decrypted = cipher.doFinal(decoded);
+		 String saml = new String(decrypted, 16, decrypted.length-16, "UTF-8");
+		 
+		 // Parse the XML and return the token.
+		 return getDocument(saml);
 	}
 
 	private static String getAudienceUri(
@@ -426,11 +484,4 @@ public class SamlTokenValidator {
 		return documentbuilder.parse(new InputSource(new StringReader(doc)));
 	}
 
-	public void setThumbprint(String thumbprint) {
-		this.thumbprint = thumbprint;
-	}
-
-	public String getThumbprint() {
-		return thumbprint;
-	}
 }

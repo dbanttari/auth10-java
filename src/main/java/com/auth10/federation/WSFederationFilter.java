@@ -56,7 +56,6 @@ public class WSFederationFilter implements Filter {
 			} else {
 				this.redirectToLoginPage(httpRequest, httpResponse);
 			}
-			
 			return;
 		}
 			
@@ -71,10 +70,7 @@ public class WSFederationFilter implements Filter {
 	}
 
 	protected void redirectToIdentityProvider(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-		String wctx = getRequestPathAndQuery(httpRequest);
-		String redirect = FederatedLoginManager.getFederatedLoginUrl(wctx);
-		
-		httpResponse.setHeader("Location", redirect);
+		httpResponse.setHeader("Location", loginPage);
 		httpResponse.setStatus(302);
 	}
 

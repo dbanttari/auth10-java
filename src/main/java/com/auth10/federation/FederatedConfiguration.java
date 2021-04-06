@@ -29,79 +29,122 @@ package com.auth10.federation;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Properties;
 
-public class FederatedConfiguration {
+public class FederatedConfiguration extends Properties {
+
+	private static final long serialVersionUID = -7599561834542465499L;
 	private static FederatedConfiguration instance = null;
-	private Properties properties;
+	private List<URI> uris = null;
+	private static Path propsPath;
 
 	public static FederatedConfiguration getInstance() {
+		return getInstance(Paths.get("/federation.properties"));
+	}
+
+	public static FederatedConfiguration getInstance(Path path) {
+		propsPath = path;
 		if (instance == null) {
 			synchronized (FederatedConfiguration.class) {
-				instance = load();
+				instance = new FederatedConfiguration();
 			}
 		}
-
 		return instance;
+		
 	}
-
-	private static FederatedConfiguration load() {
-		java.util.Properties props = new java.util.Properties();
-
-		try {
-			InputStream is = FederatedConfiguration.class.getResourceAsStream("/federation.properties");
-			props.load(is);
-		} catch (IOException e) {
-			throw new RuntimeException("Configuration could not be loaded", e);
+	
+	private FederatedConfiguration() {
+		if (propsPath == null) {
+			try (InputStream is = FederatedConfiguration.class.getResourceAsStream("/federation.properties")) {
+				load(is);
+			} catch (IOException e) {
+				throw new RuntimeException("Configuration could not be loaded", e);
+			}
 		}
-
-		return new FederatedConfiguration(props);
-	}
-
-	private FederatedConfiguration(Properties properties) {
-		this.properties = properties;
+		else {
+			try (InputStream is = Files.newInputStream(propsPath)) {
+				load(is);
+			} catch (IOException e) {
+				throw new RuntimeException("Configuration could not be loaded", e);
+			}
+		}
 	}
 
 	public String getStsUrl() {
-		return this.properties.getProperty("federation.trustedissuers.issuer");
+		return getProperty("federation.trustedissuers.issuer");
 	}
 
 	public String getStsFriendlyName() {
-		return this.properties.getProperty("federation.trustedissuers.friendlyname");
-	}
-	
-	public String getThumbprint() {
-		return this.properties.getProperty("federation.trustedissuers.thumbprint");
+		return getProperty("federation.trustedissuers.friendlyname");
 	}
 
 	public String getRealm() {
-		return this.properties.getProperty("federation.realm");
+		return getProperty("federation.realm");
 	}
 
 	public String getReply() {
-		return this.properties.getProperty("federation.reply");
+		return getProperty("federation.reply");
 	}
 
-	public String[] getTrustedIssuers() {
-		String trustedIssuers = this.properties.getProperty("federation.trustedissuers.subjectname");
-		
-		if (trustedIssuers != null)
-			return trustedIssuers.split("\\|");
-		else
-			return null;
-	}
-
-	public String[] getAudienceUris() {
-		return this.properties.getProperty("federation.audienceuris").split("\\|");
-	}
-	
 	public Boolean getEnableManualRedirect() {
-		String manual = this.properties.getProperty("federation.enableManualRedirect");
+		String manual = getProperty("federation.enableManualRedirect");
 		if (manual != null && Boolean.parseBoolean(manual)) {
 			return true;
 		}
-		
 		return false;
 	}
 
+	public void setThumbprint(String thumbprint) {
+		setProperty("federation.trustedissuers.thumbprint", thumbprint);
+	}
+
+	public String getThumbprint() {
+		return getProperty("federation.trustedissuers.thumbprint");
+	}
+
+	public void setTrustedIssuers(String issuers) {
+		if ( issuers == null  ) {
+			setProperty("federation.trustedissuers.subjectname", "");
+		}
+		else {
+			setProperty("federation.trustedissuers.subjectname", issuers);
+		}
+	}
+
+	public String[] getTrustedIssuers() {
+		String trustedIssuers = getProperty("federation.trustedissuers.subjectname");
+
+		if (trustedIssuers == null)
+			return new String[0];
+		else
+			return trustedIssuers.split("\\|");
+	}
+
+	public void setAudienceURI(String uris) {
+		setProperty("federation.audienceuris", uris);
+		this.uris = null;
+	}
+
+	public List<URI> getAudienceUris() {
+		if (uris == null) {
+			uris = new LinkedList<URI>();
+			if (containsKey("federation.audienceuris")) {
+				for (String uri : getProperty("federation.audienceuris").split("\\|")) {
+					try {
+						uris.add(new URI(uri));
+					} catch (URISyntaxException e) {
+						throw new RuntimeException(e);
+					}
+				}
+			}
+		}
+		return uris;
+	}
 }
