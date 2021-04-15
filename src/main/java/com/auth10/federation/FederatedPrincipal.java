@@ -50,7 +50,7 @@ public class FederatedPrincipal implements Principal {
 				name = claim.getClaimValue();
 		}
 		
-		if (name.isEmpty()){
+		if (name == null || name.isEmpty()){
 			for (Claim claim : claims) {
 				if (claim.getClaimType().equals(EmailClaimType))
 					name = claim.getClaimValue();
