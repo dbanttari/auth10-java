@@ -43,14 +43,23 @@ public class FederatedConfiguration extends Properties {
 	private static final long serialVersionUID = -7599561834542465499L;
 	private static FederatedConfiguration instance = null;
 	private List<URI> uris = null;
-	private static Path propsPath;
+	private static Path propsPath = null;
 
-	public static FederatedConfiguration getInstance() {
-		return getInstance(Paths.get("/federation.properties"));
+	public static FederatedConfiguration getInstance() throws IOException {
+		return new FederatedConfiguration();
 	}
 
-	public static FederatedConfiguration getInstance(Path path) {
-		propsPath = path;
+	public static FederatedConfiguration getInstance(String path) throws IOException {
+		if(propsPath != null) {
+			Path _path = Paths.get(path);
+			if(!propsPath.equals(_path)) {
+				instance = null; // make new instance, path changed
+				propsPath = _path;
+			}
+		}
+		else {
+			propsPath = Paths.get(path);
+		}
 		if (instance == null) {
 			synchronized (FederatedConfiguration.class) {
 				instance = new FederatedConfiguration();
@@ -60,19 +69,19 @@ public class FederatedConfiguration extends Properties {
 		
 	}
 	
-	private FederatedConfiguration() {
+	private FederatedConfiguration() throws IOException {
 		if (propsPath == null) {
 			try (InputStream is = FederatedConfiguration.class.getResourceAsStream("/federation.properties")) {
 				load(is);
 			} catch (IOException e) {
-				throw new RuntimeException("Configuration could not be loaded", e);
+				throw new IOException("Configuration could not be loaded", e);
 			}
 		}
 		else {
 			try (InputStream is = Files.newInputStream(propsPath)) {
 				load(is);
 			} catch (IOException e) {
-				throw new RuntimeException("Configuration could not be loaded", e);
+				throw new IOException("Configuration could not be loaded", e);
 			}
 		}
 	}
@@ -132,19 +141,19 @@ public class FederatedConfiguration extends Properties {
 		this.uris = null;
 	}
 
-	public List<URI> getAudienceUris() {
+	public List<URI> getAudienceUris() throws URISyntaxException {
 		if (uris == null) {
 			uris = new LinkedList<URI>();
 			if (containsKey("federation.audienceuris")) {
 				for (String uri : getProperty("federation.audienceuris").split("\\|")) {
-					try {
-						uris.add(new URI(uri));
-					} catch (URISyntaxException e) {
-						throw new RuntimeException(e);
-					}
+					uris.add(new URI(uri));
 				}
 			}
 		}
 		return uris;
+	}
+
+	public String getPrivateKeyPath() {
+		return getProperty("federation.privateKeyFile");
 	}
 }

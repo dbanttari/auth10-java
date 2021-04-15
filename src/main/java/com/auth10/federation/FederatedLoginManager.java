@@ -27,6 +27,7 @@
 
 package com.auth10.federation;
 
+import java.io.IOException;
 import java.util.Calendar;
 import java.util.List;
 
@@ -79,7 +80,7 @@ public class FederatedLoginManager {
 		}
 	}
 		
-	public static String getFederatedLoginUrl(String realm, String replyURL, String returnURL) {
+	public static String getFederatedLoginUrl(String realm, String replyURL, String returnURL) throws IOException  {
 		Calendar c = Calendar.getInstance();
 
 		String encodedDate = CHECKING_FORMAT.print(c.getTimeInMillis());

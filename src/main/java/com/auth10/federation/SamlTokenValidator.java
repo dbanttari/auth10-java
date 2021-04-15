@@ -95,11 +95,11 @@ public class SamlTokenValidator {
 	private boolean validateExpiration = true;
 	private final FederatedConfiguration config;
 
-	public SamlTokenValidator() throws ConfigurationException, URISyntaxException {
+	public SamlTokenValidator() throws IOException, URISyntaxException, ConfigurationException {
 		this(FederatedConfiguration.getInstance());
 	}
 
-	public SamlTokenValidator(FederatedConfiguration config) throws ConfigurationException {
+	public SamlTokenValidator(FederatedConfiguration config) throws IOException, ConfigurationException {
 		super();
 		this.config = config;
 		DefaultBootstrap.bootstrap();
@@ -115,7 +115,7 @@ public class SamlTokenValidator {
 
 	public FederatedPrincipal validate(String envelopedToken)
 			throws Exception {
-	
+
 		SignableSAMLObject samlToken;
 		
 		if (envelopedToken.contains("RequestSecurityTokenResponse")) {
@@ -212,6 +212,7 @@ public class SamlTokenValidator {
 		}
 		
 		return ret;
+
 	}
 
 	private static SignableSAMLObject getSamlTokenFromSamlResponse(
@@ -226,7 +227,7 @@ public class SamlTokenValidator {
 		return samlToken;
 	}
 
-	private static SignableSAMLObject getSamlTokenFromRstr(String rstr)
+	private SignableSAMLObject getSamlTokenFromRstr(String rstr)
 			throws Exception {
 		
 		Document document = getDocument(rstr);
@@ -277,13 +278,13 @@ public class SamlTokenValidator {
 	    return (RSAPrivateKey) keyFactory.generatePrivate(keySpec);
 	}
 	
-	private static Document decodeEncryptedResponse(Document doc) throws Exception {
+	private Document decodeEncryptedResponse(Document doc) throws Exception {
 		 NodeList ciphers = doc.getElementsByTagNameNS("http://www.w3.org/2001/04/xmlenc#", "CipherValue");
 		 String aesPasswordEncrypted = ciphers.item(0).getTextContent().trim();
 		 String samlTokenEncrypted = ciphers.item(1).getTextContent().trim();
 
 		 // Decrypt the password for the SAML token.
-		 RSAPrivateKey privateKey = readPrivateKey(Paths.get("src","test","resources","privatekey.pem"));
+		 RSAPrivateKey privateKey = readPrivateKey(Paths.get(config.getPrivateKeyPath()));
 		 Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPPadding");
 		 cipher.init(Cipher.DECRYPT_MODE, privateKey);
 		 byte[] decoded = Base64.getDecoder().decode(aesPasswordEncrypted);
